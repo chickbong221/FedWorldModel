@@ -1,0 +1,12 @@
+__pycache__
+*.pyc
+.vscode
+.DS_Store
+callbacks/*
+.ipynb_checkpoints
+.cache
+wandb/*
+env_twister/*
+.env
+callbacks
+draw
