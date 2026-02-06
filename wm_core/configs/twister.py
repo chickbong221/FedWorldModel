@@ -27,7 +27,7 @@ epoch_length = model.config.epoch_length
 if os.environ.get("run_name", False):
     callback_path = (
     f"callbacks/{os.environ['run_name']}/"
-    f"{env_name}_temporal_multi_discriminator_{time.time()}"
+    f"{env_name}_STORM{time.time()}"
 )
 else:
     callback_path = "callbacks/{}".format(env_name)

@@ -7,6 +7,3 @@ callbacks/*
 .cache
 wandb/*
 env_twister/*
-.env
-callbacks
-draw

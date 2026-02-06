@@ -95,11 +95,6 @@ class FedAvg(Server):
                 for client in self.selected_clients:
                     client.train(task=task)
 
-                # threads = [Thread(target=client.train)
-                #            for client in self.selected_clients]
-                # [t.start() for t in threads]
-                # [t.join() for t in threads]
-
                 self.receive_models()
                 self.receive_grads()
                 model_origin = copy.deepcopy(self.global_model)

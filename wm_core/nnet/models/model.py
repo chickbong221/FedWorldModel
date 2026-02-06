@@ -531,7 +531,17 @@ class Model(modules.Module):
         pass
 
     def on_epoch_end(self, evaluate, save, log_figure, callback_path, epoch, inputs, targets, dataset_eval, eval_steps, verbose_eval, writer, recompute_metrics, keep_last_k):
-        self.on_step_end(evaluate, save, log_figure, callback_path, epoch, epoch, inputs, targets, dataset_eval, eval_steps, verbose_eval, writer, recompute_metrics, keep_last_k=keep_last_k, tag="epoch")
+        # self.on_step_end(evaluate, save, log_figure, callback_path, epoch, epoch, inputs, targets, dataset_eval, eval_steps, verbose_eval, writer, recompute_metrics, keep_last_k=keep_last_k, tag="epoch")
+
+        # Evaluate Model
+        if evaluate:
+            self._evaluate(dataset_eval, writer, eval_steps, verbose_eval, recompute_metrics, tag="Evaluation-" + "epoch", epoch=epoch)
+            self.train()
+
+        if log_figure and callback_path:
+            self.eval()
+            self.log_figure(epoch, inputs, targets, writer, "epoch")
+            self.train()
 
         # Print
         print()
@@ -540,12 +550,12 @@ class Model(modules.Module):
 
         # Evaluate Model
         if evaluate:
-            self._evaluate(dataset_eval, writer, eval_steps, verbose_eval, recompute_metrics, tag="Evaluation-" + tag)
+            self._evaluate(dataset_eval, writer, eval_steps, verbose_eval, recompute_metrics, tag="Evaluation-" + tag, epoch=epoch)
             self.train()
 
         # Save Checkpoint
-        if save and callback_path:
-            self.save(os.path.join(callback_path, "checkpoints_epoch_{}_step_{}.ckpt".format(epoch, self.model_step)), keep_last_k=keep_last_k)
+        # if save and callback_path:
+        #     self.save(os.path.join(callback_path, "checkpoints_epoch_{}_step_{}.ckpt".format(epoch, self.model_step)), keep_last_k=keep_last_k)
 
         # Log Figure
         if log_figure and callback_path:
@@ -553,7 +563,7 @@ class Model(modules.Module):
             self.log_figure(step, inputs, targets, writer, tag)
             self.train()
 
-    def log_figure(self, step, inputs, targets, writer, tag): 
+    def log_figure(self, epoch, inputs, targets, writer, tag): 
         pass
 
     def display_step(self, losses, metrics, infos, epoch_iterator, step):
@@ -583,23 +593,34 @@ class Model(modules.Module):
         # Set description
         epoch_iterator.set_description(description)
 
-    def log_step(self, losses, metrics, infos, writer, step, tag):
+    def log_step(self, losses, metrics, infos, writer, step=None, epoch=None, tag="train"):
+        print("Logging step:", tag, "step:", step, "epoch:", epoch)
+        log_dict = {}
+
+        # Axes
+        if step is not None:
+            log_dict["train_step"] = step
+        if epoch is not None:
+            log_dict["epoch"] = epoch
 
         # Losses
         for key, value in losses.items():
-            writer.add_scalar(os.path.join(tag, key), value, step)
+            log_dict[f"{tag}/{key}"] = float(value)
 
         # Metrics
         for key, value in metrics.items():
-            writer.add_scalar(os.path.join(tag, key), value, step)
+            log_dict[f"{tag}/{key}"] = float(value)
 
         # Infos
         for key, value in infos.items():
-            if isinstance(value, float) or isinstance(value, int):
-                writer.add_scalar(os.path.join(tag, key), float(value), step)
-            elif isinstance(value, torch.Tensor):
-                if value.numel() == 1:
-                    writer.add_scalar(os.path.join(tag, key), float(value), step)
+            if isinstance(value, (float, int)):
+                log_dict[f"{tag}/{key}"] = float(value)
+            elif isinstance(value, torch.Tensor) and value.numel() == 1:
+                log_dict[f"{tag}/{key}"] = float(value.item())
+
+        # Let W&B handle internal step ordering
+        wandb.log(log_dict)
+
 
     def print_step(self, losses, metrics, tag):
 
@@ -641,7 +662,12 @@ class Model(modules.Module):
         # Init wandb
         if callback_path is not None and wandb_logging:
             try:
-                wandb.init(project='nnet', sync_tensorboard=True, name=callback_path, resume=False, reinit=True)
+                wandb.init(project='nnet', name=callback_path, resume=False, reinit=True)
+                wandb.define_metric("train/*", step_metric="train_step")
+                wandb.define_metric("eval/*", step_metric="epoch")
+
+                wandb.define_metric("train_step")
+                wandb.define_metric("epoch")
             except Exception as e:
                 print(str(e))
 
@@ -673,7 +699,7 @@ class Model(modules.Module):
                 os.makedirs(callback_path, exist_ok=True)
 
             # Create Writer
-            writer = SummaryWriter(os.path.join(callback_path, "logs"))
+            writer = None
 
         else:
 
@@ -737,8 +763,8 @@ class Model(modules.Module):
                         self.display_step(epoch_losses, epoch_metrics, self.infos, epoch_iterator, step + 1)
 
                     # Logs Step
-                    if writer is not None and self.model_step % step_log_period == 0:
-                        self.log_step(losses=batch_losses, metrics=batch_metrics, infos=self.infos, writer=writer, step=self.model_step, tag="Training-step")
+                    if self.model_step % step_log_period == 0:
+                        self.log_step(losses=batch_losses, metrics=batch_metrics, infos=self.infos, writer=writer, step=self.model_step, epoch=None, tag="Training-step")
 
                     # On Batch End
                     self.on_step_end(
@@ -746,7 +772,7 @@ class Model(modules.Module):
                         save=False, 
                         log_figure=self.model_step % log_figure_period_step == 0 if log_figure_period_step != None else False, 
                         callback_path=callback_path, 
-                        epoch=epoch + 1,
+                        epoch=None,
                         step=self.model_step, 
                         inputs=inputs, 
                         targets=targets, 
@@ -771,9 +797,8 @@ class Model(modules.Module):
                 for key, value in epoch_metrics.items():
                     epoch_metrics[key] = value / (steps_per_epoch * accumulated_steps if steps_per_epoch is not None else len(dataset_train))
 
-                # Logs Epoch
-                if writer is not None:
-                    self.log_step(losses=epoch_losses, metrics=epoch_metrics, infos={}, writer=writer, step=epoch + 1, tag="Training-epoch")
+                # Logs Epoch:
+                self.log_step(losses=epoch_losses, metrics=epoch_metrics, infos={}, writer=writer, step=None, epoch=epoch+1, tag="Training-epoch")
 
                 # On Epoch End
                 self.on_epoch_end(
@@ -794,13 +819,9 @@ class Model(modules.Module):
 
         # Exception Handler
         except Exception as e:
-
-            if writer is not None:
-                writer.add_text("Exceptions", "Date: {} \n{}".format(time.ctime(), str(e)), self.model_step)
-
             raise e
 
-    def _evaluate(self, dataset, writer, eval_steps=None, verbose=0, recompute_metrics=False, tag="Evaluation", verbose_progress_bar=1):
+    def _evaluate(self, dataset, writer, eval_steps=None, verbose=0, recompute_metrics=False, tag="Evaluation", verbose_progress_bar=1, epoch=None):
         
         # Evaluation Dataset
         if dataset is not None:
@@ -819,8 +840,7 @@ class Model(modules.Module):
                 self.print_step(val_losses, val_metrics, "eval")
 
                 # Log
-                if writer is not None:
-                    self.log_step(losses=val_losses, metrics=val_metrics, infos={}, writer=writer, step=self.model_step, tag=os.path.join(tag, str(dataset_i)))
+                self.log_step(losses=val_losses, metrics=val_metrics, infos={}, writer=writer, step=None, epoch=epoch+1, tag=os.path.join(tag, str(dataset_i)))
 
     def evaluate(self, dataset_eval, eval_steps=None, verbose=0, recompute_metrics=False, verbose_progress_bar=1):
 
