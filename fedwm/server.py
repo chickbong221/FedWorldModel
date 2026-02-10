@@ -94,12 +94,12 @@ class ServerWMAvg:
 
         # load back into server WM
         self.tw.set_payload(
-        wm_sd=agg,
-        actor_sd={},   # keep existing
-        critic_sd={},  # keep existing
-        strict=False,
-        reset_opt=False,
-    )
+            wm_sd=agg,
+            actor_sd={},   # keep existing
+            critic_sd={},  # keep existing
+            strict=False,
+            reset_opt=False,
+        )
 
         # basic stats
         self.last_agg_stats = {

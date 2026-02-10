@@ -5,6 +5,7 @@ import json
 import os
 import random
 from dataclasses import dataclass
+import sys
 from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
@@ -23,6 +24,20 @@ def set_seed(seed: int) -> None:
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
+def _ensure_wm_core_on_path() -> None:
+    """
+    Assumes repo layout:
+      <repo_root>/
+        fedwm/
+        wm_core/
+    and inserts <repo_root>/wm_core to sys.path so `import nnet` works.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    repo_root = os.path.dirname(here)
+    wm_core = os.path.join(repo_root, "wm_core")
+    if wm_core not in sys.path:
+        sys.path.insert(0, wm_core)
 
 
 def _import_py_config(path: str):
@@ -67,6 +82,8 @@ def build_cfg(fl_json_path: str, wm_config_py: str, override_json: Optional[str]
 # main
 # -------------------------
 def main():
+    _ensure_wm_core_on_path()
+
     parser = argparse.ArgumentParser()
 
     # --- configs (keep same vibe as your repos) ---
@@ -153,7 +170,6 @@ def main():
         server.log_round(r)
 
     print("\nAll done!")
-
 
 if __name__ == "__main__":
     main()

@@ -18,21 +18,6 @@ import nnet
 import torch
 
 
-def _ensure_wm_core_on_path() -> None:
-    """
-    Assumes repo layout:
-      <repo_root>/
-        fedwm/
-        wm_core/
-    and inserts <repo_root>/wm_core to sys.path so `import nnet` works.
-    """
-    here = os.path.dirname(os.path.abspath(__file__))
-    repo_root = os.path.dirname(here)
-    wm_core = os.path.join(repo_root, "wm_core")
-    if wm_core not in sys.path:
-        sys.path.insert(0, wm_core)
-
-
 class TwisterAdapter:
 
     def __init__(self, model, replay_buffer, env_name, role):
@@ -139,8 +124,6 @@ class TwisterAdapter:
         override_config: Optional[Dict[str, Any]] = None,
         buffer_root: Optional[str] = None,
     ) -> "TwisterAdapter":
-
-        _ensure_wm_core_on_path()
 
         # env name
         if env_name is None:
