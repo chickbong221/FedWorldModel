@@ -8,15 +8,6 @@ import torch
 
 
 class ClientWMBase:
-    """
-    FedWM version of PFLlib's flcore.clients.clientbase.Client :contentReference[oaicite:2]{index=2}
-    but adapted to world-model training (TWISTER) instead of supervised classification.
-
-    Design goals:
-      1) main.py stays simple: set_global_wm -> (optional) local_initialization -> train -> package_update
-      2) algorithm variants only override train() and/or local_initialization(), like clientAVG/clientALA
-         :contentReference[oaicite:3]{index=3} :contentReference[oaicite:4]{index=4}
-    """
 
     def __init__(self, cfg: Any, cid: int, tw: Any, **kwargs):
         self.cfg = cfg
@@ -33,28 +24,32 @@ class ClientWMBase:
         self._critic_sd: Optional[Dict[str, torch.Tensor]] = None
 
     # ---------- payload receive ----------
-    def set_global_wm(self, wm_state_dict: Dict[str, torch.Tensor]) -> None:
-        """
-        Receive global WM and load into local model.
-        """
-        self._global_wm_sd = wm_state_dict
-        self.tw.set_wm_state_dict(wm_state_dict, strict=False)
-
-    def set_policy(
+    def set_server_payload(
         self,
+        wm_state_dict: Dict[str, torch.Tensor],
         actor_state_dict: Optional[Dict[str, torch.Tensor]] = None,
         critic_state_dict: Optional[Dict[str, torch.Tensor]] = None,
+        *,
+        reset_opt: bool = False,
     ) -> None:
-        """
-        Receive server actor/critic (optional).
-        """
+        # store (optional, for debugging/logging)
+        self._global_wm_sd = wm_state_dict
         self._actor_sd = actor_state_dict
         self._critic_sd = critic_state_dict
-        if actor_state_dict is not None:
-            self.tw.set_actor_state_dict(actor_state_dict, strict=False)
-        if critic_state_dict is not None:
-            self.tw.set_critic_state_dict(critic_state_dict, strict=False)
 
+        # If actor/critic are omitted, keep local ones by sending empty dicts
+        actor_state_dict = actor_state_dict or {}
+        critic_state_dict = critic_state_dict or {}
+
+        # Apply in one shot (updates adapter CPU snapshot, does NOT overwrite opt/scaler)
+        self.tw.set_payload(
+            wm_sd=wm_state_dict,
+            actor_sd=actor_state_dict,
+            critic_sd=critic_state_dict,
+            strict=False,
+            reset_opt=reset_opt,
+        )
+        
     # ---------- algorithm hooks ----------
     def local_initialization(self, received_global_model: Dict[str, torch.Tensor]) -> None:
         """
@@ -65,11 +60,6 @@ class ClientWMBase:
         return
 
     def train(self) -> Dict[str, float]:
-        """
-        Algorithm-specific local training.
-        Must be overridden by subclasses (AVG, ALA, etc.).
-        Returns metrics dict (optional).
-        """
         raise NotImplementedError
 
     # ---------- update packaging ----------
@@ -139,7 +129,7 @@ class ClientWMBase:
 class ClientWMAvg(ClientWMBase):
     """
     FedAvg-style client: run local WM steps then return weights.
-    Mirrors PFLlib's clientAVG where train() is the only override :contentReference[oaicite:6]{index=6}.
+    Mirrors PFLlib's clientAVG where train() is the only override.
     """
 
     def train(self) -> Dict[str, float]:
@@ -178,7 +168,6 @@ class ClientWMAla(ClientWMBase):
             return
         # Expect an interface similar to: ala.adaptive_local_aggregation(global_sd, local_model)
         # PFLlib calls: self.ALA.adaptive_local_aggregation(received_global_model, self.model)
-        # :contentReference[oaicite:9]{index=9}
         self.ala.adaptive_local_aggregation(received_global_model, self.tw.model)
 
     def train(self) -> Dict[str, float]:

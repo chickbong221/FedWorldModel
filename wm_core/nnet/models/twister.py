@@ -122,6 +122,8 @@ class TWISTER(models.Model):
         self.config.train_env_params = {}
 
         # Training
+        self.config.train_phase = "all"
+        self.config.do_env_step = True
         self.config.att_context_left = 8 # C must be <= L
         self.config.batch_size = 16
         self.config.L = 64
@@ -741,7 +743,22 @@ class TWISTER(models.Model):
             if self.model_step % self.config.critic_ema_decay == 0:
                 self.v_target.load_state_dict(self.value_network.state_dict())
 
-    def train_step(self, inputs, targets, precision, grad_scaler, accumulated_steps, acc_step, eval_training):
+    def train_step(
+        self,
+        inputs,
+        targets,
+        precision,
+        grad_scaler,
+        accumulated_steps,
+        acc_step,
+        eval_training,
+    ):
+        
+        # Federated training settings
+        phase = getattr(self.config, "train_phase", "all")
+        do_env_step = getattr(self.config, "do_env_step", True)
+
+        assert phase in ("all", "wm", "ac"), f"Invalid train_phase: {phase}"
 
         # Init Dict
         batch_losses = {}
@@ -750,77 +767,81 @@ class TWISTER(models.Model):
         # Preprocess state (uint8 to float32)
         inputs = self.preprocess_inputs(inputs, time_stacked=True)
 
-        ###############################################################################
+        # ----------------------------
         # World Train Step
-        ###############################################################################
+        # ----------------------------
+        if phase in ("all", "wm"):
+            self.set_require_grad([self.policy_network, self.value_network], False)
+            self.set_require_grad(
+                [self.encoder_network, self.decoder_network, self.rssm, self.reward_network, self.continue_network],
+                True,
+            )
+            world_model_batch_losses, world_model_batch_metrics, _ = self.world_model.train_step(
+                inputs, targets, precision, grad_scaler, accumulated_steps, acc_step, eval_training
+            )
+            batch_losses.update({"world_model_" + k: v for k, v in world_model_batch_losses.items()})
+            batch_metrics.update({"world_model_" + k: v for k, v in world_model_batch_metrics.items()})
+            self.infos.update({"world_model_" + k: v for k, v in self.world_model.infos.items()})
 
-        # World Model Step
-        self.set_require_grad([self.policy_network, self.value_network], False)
-        self.set_require_grad([self.encoder_network, self.decoder_network, self.rssm, self.reward_network, self.continue_network], True)
-        world_model_batch_losses, world_model_batch_metrics, _ = self.world_model.train_step(inputs, targets, precision, grad_scaler, accumulated_steps, acc_step, eval_training)
-        batch_losses.update({"world_model_" + key: value for key, value in world_model_batch_losses.items()})
-        batch_metrics.update({"world_model_" + key: value for key, value in world_model_batch_metrics.items()})
-        self.infos.update({"world_model_" + key: value for key, value in self.world_model.infos.items()})
+        # ----------------------------
+        # Actor/Critic Train Step
+        # ----------------------------
+        if phase in ("all", "ac"):
+            # Eval Mode: Disable Dropout
+            self.rssm.eval()
 
-        ###############################################################################
-        # Actor Model Step
-        ###############################################################################
+            # Actor Model Step
+            self.set_require_grad(self.policy_network, True)
+            self.set_require_grad(
+                [self.value_network, self.encoder_network, self.decoder_network, self.rssm, self.reward_network, self.continue_network],
+                False,
+            )
+            actor_model_batch_losses, actor_model_batch_metrics, _ = self.actor_model.train_step(
+                inputs, targets, precision, grad_scaler, accumulated_steps, acc_step, eval_training
+            )
+            batch_losses.update({"actor_model_" + k: v for k, v in actor_model_batch_losses.items()})
+            batch_metrics.update({"actor_model_" + k: v for k, v in actor_model_batch_metrics.items()})
+            self.infos.update({"actor_model_" + k: v for k, v in self.actor_model.infos.items()})
 
-        # Eval Mode: Disable Dropout
-        self.rssm.eval()
+            # Value Model Step
+            self.set_require_grad(self.value_network, True)
+            self.set_require_grad(
+                [self.policy_network, self.encoder_network, self.decoder_network, self.rssm, self.reward_network, self.continue_network],
+                False,
+            )
+            critic_model_batch_losses, critic_model_batch_metrics, _ = self.critic_model.train_step(
+                inputs, targets, precision, grad_scaler, accumulated_steps, acc_step, eval_training
+            )
+            batch_losses.update({"critic_model_" + k: v for k, v in critic_model_batch_losses.items()})
+            batch_metrics.update({"critic_model_" + k: v for k, v in critic_model_batch_metrics.items()})
+            self.infos.update({"critic_model_" + k: v for k, v in self.critic_model.infos.items()})
 
-        self.set_require_grad(self.policy_network, True)
-        self.set_require_grad([self.value_network, self.encoder_network, self.decoder_network, self.rssm, self.reward_network, self.continue_network], False)
-        actor_model_batch_losses, actor_model_batch_metrics, _ = self.actor_model.train_step(inputs, targets, precision, grad_scaler, accumulated_steps, acc_step, eval_training)
-        batch_losses.update({"actor_model_" + key: value for key, value in actor_model_batch_losses.items()})
-        batch_metrics.update({"actor_model_" + key: value for key, value in actor_model_batch_metrics.items()})
-        self.infos.update({"actor_model_" + key: value for key, value in self.actor_model.infos.items()})
+            # Train Mode
+            self.rssm.train()
 
-        ###############################################################################
-        # Value Model Step
-        ###############################################################################
+            # Update Target Networks (only makes sense if critic ran)
+            self.update_target_networks()
 
-        self.set_require_grad(self.value_network, True)
-        self.set_require_grad([self.policy_network, self.encoder_network, self.decoder_network, self.rssm, self.reward_network, self.continue_network], False)
-        critic_model_batch_losses, critic_model_batch_metrics, _ = self.critic_model.train_step(inputs, targets, precision, grad_scaler, accumulated_steps, acc_step, eval_training)
-        batch_losses.update({"critic_model_" + key: value for key, value in critic_model_batch_losses.items()})
-        batch_metrics.update({"critic_model_" + key: value for key, value in critic_model_batch_metrics.items()})
-        self.infos.update({"critic_model_" + key: value for key, value in self.critic_model.infos.items()})
-
-        # Train Mode
-        self.rssm.train()
-
-        ###############################################################################
-        # Update Target Networks
-        ###############################################################################
-
-        # Update value target
-        self.update_target_networks()
-
-        ###############################################################################
+        # ----------------------------
         # Env Step
-        ###############################################################################
+        # ----------------------------
+        if do_env_step:
+            num_env_steps = (self.config.batch_size * self.config.L) / (self.config.env_step_period * self.config.num_envs)
 
-        # Env Step
-        num_env_steps = (self.config.batch_size * self.config.L) / (self.config.env_step_period * self.config.num_envs)
-
-        # Env step every n model step
-        if 0 < num_env_steps < 1:
-            model_step_period = 1 / num_env_steps
-            if self.model_step % model_step_period == 0:
-                with torch.cuda.amp.autocast(enabled=precision!=torch.float32, dtype=precision):
-                    self.env_step()
-            
-        # n env steps per model step
-        else:
-            with torch.cuda.amp.autocast(enabled=precision!=torch.float32, dtype=precision):
-                for i in range(int(num_env_steps)):
-                    self.env_step()
+            if 0 < num_env_steps < 1:
+                model_step_period = 1 / num_env_steps
+                if self.model_step % model_step_period == 0:
+                    with torch.cuda.amp.autocast(enabled=precision != torch.float32, dtype=precision):
+                        self.env_step()
+            else:
+                with torch.cuda.amp.autocast(enabled=precision != torch.float32, dtype=precision):
+                    for _i in range(int(num_env_steps)):
+                        self.env_step()
 
         # Update Infos
         self.infos["episodes"] = self.episodes.item()
         for env_i in range(self.config.num_envs):
-            self.infos["ep_rewards_{}".format(env_i)] = round(self.ep_rewards[env_i].item(), 2)
+            self.infos[f"ep_rewards_{env_i}"] = round(self.ep_rewards[env_i].item(), 2)
         self.infos["step"] = self.model_step
         self.infos["action_step"] = self.action_step.item()
 

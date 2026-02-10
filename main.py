@@ -11,7 +11,6 @@ from typing import Any, Dict, Optional
 import numpy as np
 import torch
 
-
 # -------------------------
 # utils
 # -------------------------
@@ -97,52 +96,59 @@ def main():
 
     # ---- import your thin integration layer ----
     # These are in YOUR new repo (not in fl_core/wm_core)
-    from fedwm.server import ServerFedAvgWM
-    from fedwm.client import ClientWM
+    from fedwm.server import ServerWMAvg
+    from fedwm.client import ClientWMAvg
     from fedwm.twister_adapter import TwisterAdapter
 
     # ---- build server (server owns global WM + actor/critic training) ----
     server_tw = TwisterAdapter.from_config(
         wm_config=cfg.wm,
-        device=device,
         env_name=args.env_name,
         seed=args.seed,
         role="server",
     )
-    server = ServerFedAvgWM(cfg=cfg, tw=server_tw)
+    server = ServerWMAvg(cfg=cfg, tw=server_tw)
 
     # ---- build clients (each client has its own WM + env + replay) ----
     clients = []
     for cid in range(int(cfg.fl.num_clients)):
         client_tw = TwisterAdapter.from_config(
             wm_config=cfg.wm,
-            device=device,
             env_name=args.env_name,
             seed=args.seed + 1000 * cid,
             role=f"client{cid}",
         )
-        clients.append(ClientWM(cid=cid, cfg=cfg, tw=client_tw))
+        clients.append(ClientWMAvg(cid=cid, cfg=cfg, tw=client_tw))
 
     # ---- federated training loop ----
     global_rounds = int(getattr(cfg.fl, "global_rounds", getattr(cfg.fl, "num_rounds", 100)))
     for r in range(global_rounds):
         print(f"\n===== Round {r+1}/{global_rounds} =====")
 
-        selected = server.select_clients(clients)  # uses join_ratio etc.
+        server.reset_round_buffers()
+        selected = server.select_clients(clients)
         wm_sd, actor_sd, critic_sd = server.get_payload()
 
         # broadcast + local client work
         for c in selected:
-            c.set_policy(actor_sd, critic_sd)
-            c.set_global_wm(wm_sd)
-            upd = c.local_round()  # internally: collect env steps + WM updates (fit or step-based)
+            c.set_server_payload(wm_sd, actor_sd, critic_sd, reset_opt=False)
+            c.tw.lease_to(device)
+            try:
+                upd = c.local_round()           # do WM env steps + WM updates on GPU
+            finally:
+                # Always park back to CPU and free VRAM even if local_round throws
+                c.tw.sync_to_cpu(free_cuda=True)
             server.receive_update(upd)
 
         # aggregate world model
         server.aggregate_world_model()
 
         # server-side actor/critic training using global WM
-        server.train_actor_critic()
+        server.tw.lease_to(device)
+        try:
+            server.train_actor_critic()
+        finally:
+            server.tw.sync_to_cpu(free_cuda=True)
 
         server.log_round(r)
 
