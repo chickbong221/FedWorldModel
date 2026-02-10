@@ -24,7 +24,7 @@ class ClientWMBase:
         self._critic_sd: Optional[Dict[str, torch.Tensor]] = None
 
     # ---------- payload receive ----------
-    def set_server_payload(
+    def set_client(
         self,
         wm_state_dict: Dict[str, torch.Tensor],
         actor_state_dict: Optional[Dict[str, torch.Tensor]] = None,
@@ -49,7 +49,7 @@ class ClientWMBase:
             strict=False,
             reset_opt=reset_opt,
         )
-        
+
     # ---------- algorithm hooks ----------
     def local_initialization(self, received_global_model: Dict[str, torch.Tensor]) -> None:
         """
@@ -82,14 +82,11 @@ class ClientWMBase:
             return 1
 
     def package_update(self, metrics: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
-        """
-        Return the update payload to the server.
-        Full WM weights for now (easiest). Delta/compression can be added later.
-        """
         if metrics is None:
             metrics = {}
 
-        wm_sd = self.tw.get_wm_state_dict(to_cpu=True)
+        # Always derive from payload (works for both old/new adapter shapes)
+        wm_sd, _, _ = self.tw.get_payload(to_cpu=True)
 
         return {
             "cid": self.id,
@@ -99,18 +96,9 @@ class ClientWMBase:
         }
 
     def local_round(self) -> Dict[str, Any]:
-        """
-        The one function your current fedwm/main.py expects.
-
-        Sequence:
-          1) verify global received
-          2) optional algorithm-specific init (ALA etc.)
-          3) train locally
-          4) package weights + stats
-        """
         if self._global_wm_sd is None:
             raise RuntimeError(
-                f"Client {self.id}: global WM not set. Call set_global_wm() before local_round()."
+                f"Client {self.id}: global WM not set."
             )
 
         start = time.time()

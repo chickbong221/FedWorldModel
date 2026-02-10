@@ -272,7 +272,7 @@ class TwisterAdapter:
 
         # Optimizer handling
         if reset_opt:
-            self._reset_optimizer_state_only()
+            pass
 
     # ----------------------------
     # Training primitives

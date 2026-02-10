@@ -93,7 +93,13 @@ class ServerWMAvg:
                 agg[k] += v.to(dtype=agg[k].dtype) * float(w)
 
         # load back into server WM
-        self.tw.set_wm_state_dict(agg, strict=False)
+        self.tw.set_payload(
+        wm_sd=agg,
+        actor_sd={},   # keep existing
+        critic_sd={},  # keep existing
+        strict=False,
+        reset_opt=False,
+    )
 
         # basic stats
         self.last_agg_stats = {

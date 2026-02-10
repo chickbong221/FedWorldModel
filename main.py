@@ -131,7 +131,7 @@ def main():
 
         # broadcast + local client work
         for c in selected:
-            c.set_server_payload(wm_sd, actor_sd, critic_sd, reset_opt=False)
+            c.set_client(wm_sd, actor_sd, critic_sd, reset_opt=False)
             c.tw.lease_to(device)
             try:
                 upd = c.local_round()           # do WM env steps + WM updates on GPU
