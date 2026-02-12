@@ -82,15 +82,27 @@ class ServerWMAvg:
         denom = float(sum(weights))
         weights = [w / denom for w in weights]
 
-        # init accumulator with first client's keys (assume all match)
+        # init accumulator
         first_sd: Dict[str, torch.Tensor] = active[0]["wm_state_dict"]
-        agg: Dict[str, torch.Tensor] = {k: torch.zeros_like(v) for k, v in first_sd.items()}
+        agg: Dict[str, torch.Tensor] = {}
 
-        # accumulate weighted average
+        # pre-create accumulators
+        for k, v in first_sd.items():
+            if torch.is_floating_point(v):
+                agg[k] = torch.zeros_like(v, dtype=v.dtype)
+            else:
+                # keep as-is (copy from first client)
+                agg[k] = v.clone()
+
+        # accumulate weighted average for floating tensors only
         for w, upd in zip(weights, active):
             sd: Dict[str, torch.Tensor] = upd["wm_state_dict"]
             for k, v in sd.items():
-                agg[k] += v.to(dtype=agg[k].dtype) * float(w)
+                if torch.is_floating_point(v):
+                    agg[k] += v.to(dtype=agg[k].dtype) * float(w)
+                else:
+                    # do nothing; already copied from first client
+                    pass
 
         # load back into server WM
         self.tw.set_payload(

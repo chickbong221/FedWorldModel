@@ -43,7 +43,7 @@ def find_last_checkpoint(callback_path, return_full_path=False):
 def load_model(args):
 
     # Model Device
-    device = torch.device("cuda:0" if torch.cuda.is_available() and not args.cpu else "cpu")
+    device = torch.device("cpu")
     if "cuda" in str(device):
         print("device: {}, {}, {}MB".format(device, torch.cuda.get_device_properties(device).name, int(torch.cuda.get_device_properties(device).total_memory // 1e6)))
         args.num_gpus = torch.cuda.device_count()
@@ -75,83 +75,70 @@ def load_model(args):
     
     return model
 
-def load_datasets(args):
+def load_datasets(cfg, replay_buffer=None, eval_dataset=None):
 
     def print_dataset(args, dataset, tag):
 
         print("{} Dataset: {}, {:,} samples - {:,} batches - batch size {}".format(tag, dataset.dataset.__class__.__name__, len(dataset.dataset), len(dataset), dataset.dataset.batch_size))
 
-    # Training Dataset
-    if hasattr(args.config, "training_dataset"):
+    # DataLoader
+    dataset_train = torch.utils.data.DataLoader(
+        dataset=replay_buffer,
+        batch_size=cfg.training_dataset.batch_size,
+        shuffle=cfg.training_dataset.shuffle,
+        sampler=None,
+        num_workers=cfg.training_dataset.num_workers,
+        collate_fn=cfg.training_dataset.collate_fn,
+        pin_memory=False,
+        drop_last=True,
+        worker_init_fn=getattr(cfg, "worker_init_fn", None),
+        persistent_workers=cfg.training_dataset.persistent_workers,
+    )
+        
+    # Loaded Print
+    print_dataset(cfg, dataset_train, "Training")
+
+    # Multiple Evaluation datasets
+    if isinstance(cfg.evaluation_dataset, list):
+
+        dataset_eval = []
+        for dataset in cfg.evaluation_dataset:
+
+            # DataLoader
+            dataset_eval.append(torch.utils.data.DataLoader(
+                dataset=dataset,
+                batch_size=dataset.batch_size,
+                shuffle=dataset.shuffle,
+                sampler=None,
+                num_workers=dataset.num_workers,
+                collate_fn=dataset.collate_fn,
+                pin_memory=False,
+                drop_last=False,
+                worker_init_fn=getattr(cfg, "worker_init_fn", None),
+                persistent_workers=dataset.persistent_workers,
+            ))
+        
+            # Loaded Print
+            print_dataset(cfg, dataset_eval[-1], "Evaluation")
+
+    # One Evaluation dataset
+    else:
 
         # DataLoader
-        dataset_train = torch.utils.data.DataLoader(
-            dataset=args.config.training_dataset,
-            batch_size=args.config.training_dataset.batch_size,
-            shuffle=args.config.training_dataset.shuffle,
+        dataset_eval = torch.utils.data.DataLoader(
+            dataset=eval_dataset,
+            batch_size=cfg.evaluation_dataset.batch_size,
+            shuffle=cfg.evaluation_dataset.shuffle,
             sampler=None,
-            num_workers=args.config.training_dataset.num_workers,
-            collate_fn=args.config.training_dataset.collate_fn,
+            num_workers=cfg.evaluation_dataset.num_workers,
+            collate_fn=cfg.evaluation_dataset.collate_fn,
             pin_memory=False,
-            drop_last=True,
-            worker_init_fn=getattr(args.config, "worker_init_fn", None),
-            persistent_workers=args.config.training_dataset.persistent_workers,
+            drop_last=False,
+            worker_init_fn=getattr(cfg, "worker_init_fn", None),
+            persistent_workers=cfg.evaluation_dataset.persistent_workers,
         )
         
         # Loaded Print
-        print_dataset(args, dataset_train, "Training")
-
-    else:
-
-        dataset_train = None
-
-    # Evaluation Dataset
-    if hasattr(args.config, "evaluation_dataset"):
-
-        # Multiple Evaluation datasets
-        if isinstance(args.config.evaluation_dataset, list):
-
-            dataset_eval = []
-            for dataset in args.config.evaluation_dataset:
-
-                # DataLoader
-                dataset_eval.append(torch.utils.data.DataLoader(
-                    dataset=dataset,
-                    batch_size=dataset.batch_size,
-                    shuffle=dataset.shuffle,
-                    sampler=None,
-                    num_workers=dataset.num_workers,
-                    collate_fn=dataset.collate_fn,
-                    pin_memory=False,
-                    drop_last=False,
-                    worker_init_fn=getattr(args.config, "worker_init_fn", None),
-                    persistent_workers=dataset.persistent_workers,
-                ))
-            
-                # Loaded Print
-                print_dataset(args, dataset_eval[-1], "Evaluation")
-
-        # One Evaluation dataset
-        else:
-
-            # DataLoader
-            dataset_eval = torch.utils.data.DataLoader(
-                dataset=args.config.evaluation_dataset,
-                batch_size=args.config.evaluation_dataset.batch_size,
-                shuffle=args.config.evaluation_dataset.shuffle,
-                sampler=None,
-                num_workers=args.config.evaluation_dataset.num_workers,
-                collate_fn=args.config.evaluation_dataset.collate_fn,
-                pin_memory=False,
-                drop_last=False,
-                worker_init_fn=getattr(args.config, "worker_init_fn", None),
-                persistent_workers=args.config.evaluation_dataset.persistent_workers,
-            )
-            
-            # Loaded Print
-            print_dataset(args, dataset_eval, "Evaluation")
-                
-    else:
-        dataset_eval = None
+        print_dataset(cfg, dataset_eval, "Evaluation")
     
     return dataset_train, dataset_eval

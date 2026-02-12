@@ -8,9 +8,16 @@ from dataclasses import dataclass
 import sys
 from types import SimpleNamespace
 from typing import Any, Dict, Optional
+from fedwm.utils import ensure_wm_core_on_path
 
 import numpy as np
 import torch
+
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message=".*X11: The DISPLAY environment variable is missing.*",
+)
 
 # -------------------------
 # utils
@@ -24,21 +31,6 @@ def set_seed(seed: int) -> None:
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-
-def _ensure_wm_core_on_path() -> None:
-    """
-    Assumes repo layout:
-      <repo_root>/
-        fedwm/
-        wm_core/
-    and inserts <repo_root>/wm_core to sys.path so `import nnet` works.
-    """
-    here = os.path.dirname(os.path.abspath(__file__))
-    repo_root = os.path.dirname(here)
-    wm_core = os.path.join(repo_root, "wm_core")
-    if wm_core not in sys.path:
-        sys.path.insert(0, wm_core)
-
 
 def _import_py_config(path: str):
     """
@@ -82,12 +74,11 @@ def build_cfg(fl_json_path: str, wm_config_py: str, override_json: Optional[str]
 # main
 # -------------------------
 def main():
-    _ensure_wm_core_on_path()
-
+    ensure_wm_core_on_path() 
     parser = argparse.ArgumentParser()
 
     # --- configs (keep same vibe as your repos) ---
-    parser.add_argument("--cfp", type=str, default="./hparams/FedAvg.json",
+    parser.add_argument("--cfp", type=str, default="/root/projects/FedWorldModel/fedwm/config.json",
                         help="FL JSON config path (FedAvg-like).")
     parser.add_argument("--wm_config", type=str, default="wm_core/configs/twister.py",
                         help="TWISTER python config file.")
@@ -145,6 +136,7 @@ def main():
         server.reset_round_buffers()
         selected = server.select_clients(clients)
         wm_sd, actor_sd, critic_sd = server.get_payload()
+        # print(f"Selected clients: {[c.id for c in selected]} (num {len(selected)})")
 
         # broadcast + local client work
         for c in selected:

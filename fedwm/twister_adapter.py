@@ -1,28 +1,22 @@
-# fedwm/twister_adapter.py
-# A thin wrapper around TWISTER so FL code can:
-#   - construct per-client/server TWISTER instances
-#   - get/set (world model / actor / critic) state_dict slices
-#   - run a small number of local training steps using TWISTER's built-in fit() loop
-#
-# This adapter is based on TWISTER's entrypoint pattern (load config -> load model -> load dataset -> model.fit)
-# shown in TWISTER main.py :contentReference[oaicite:0]{index=0} and the generic nnet Model.fit/train_step logic :contentReference[oaicite:1]{index=1}.
-
 from __future__ import annotations
 
 import os
 import sys
 import json
+import time
 from typing import Any, Dict, Optional, Tuple
 from fedwm.utils import to_cpu_sd, to_device_sd, safe_int, safe_bool, set_seed
 import nnet
 import torch
+import functions
 
 
 class TwisterAdapter:
 
-    def __init__(self, model, replay_buffer, env_name, role):
+    def __init__(self, model, replay_buffer, evaluation_dataset, env_name, role, cfg):
         self.model = model
         self.replay_buffer = replay_buffer
+        self.evaluation_dataset = evaluation_dataset
         self.env_name = env_name
         self.role = role
 
@@ -32,6 +26,19 @@ class TwisterAdapter:
 
         self._snapshot_to_cpu()
         self._park_model_to_cpu()
+
+        # Load Dataset
+        self.dataset_train, self.dataset_eval = functions.load_datasets(cfg, self.replay_buffer, self.evaluation_dataset)
+        
+        # Callback
+        if os.environ.get("run_name", False):
+            self.callback_path = (
+            f"callbacks/{os.environ['run_name']}/"
+            f"{env_name}_{time.time()}"
+        )
+        else:
+            self.callback_path = "callbacks/{}".format(env_name)
+
 
     # ----------------------------
     # internal
@@ -156,6 +163,7 @@ class TwisterAdapter:
         # build on CPU (avoid VRAM blow-up)
         cpu = torch.device("cpu")
         model = nnet.models.TWISTER(env_name=env_name, override_config=merged_override)
+        print(f"TWISTER model built on CPU with env {env_name} and role {role}.")
         model.to(cpu)
         model.compile()  # creates optimizers etc. (stays on CPU)
 
@@ -184,14 +192,19 @@ class TwisterAdapter:
         )
         model.set_replay_buffer(replay_buffer)
 
+        # Evaluation Dataset
+        evaluation_dataset = nnet.datasets.VoidDataset(num_steps=model.config.eval_episodes)
+
         set_seed(seed)
 
         # adapter starts parked on CPU; device is the target for lease_to()
         return TwisterAdapter(
             model=model,
             replay_buffer=replay_buffer,
+            evaluation_dataset=evaluation_dataset,
             env_name=env_name,
             role=role,
+            cfg=wm_config,
         )
 
     # ----------------------------
@@ -284,11 +297,11 @@ class TwisterAdapter:
             grad_init_scale = getattr(wm_config, "grad_init_scale", 65536.0)
 
         self.model.fit(
-            dataset_train=self.replay_buffer,
+            dataset_train=self.dataset_train,
             epochs=1,
-            dataset_eval=None,
+            dataset_eval=self.dataset_eval,
             initial_epoch=0,
-            callback_path=None,
+            callback_path=self.callback_path,
             precision=precision,
             accumulated_steps=accumulated_steps,
             eval_period_step=None,
@@ -301,8 +314,8 @@ class TwisterAdapter:
             detect_anomaly=False,
             recompute_metrics=False,
             wandb_logging=False,
-            verbose_progress_bar=0,
-            keep_last_k=None,
+            verbose_progress_bar=1,
+            keep_last_k=3,
         )
 
         # Best-effort: TWISTER stores running infos internally, but not guaranteed stable API.

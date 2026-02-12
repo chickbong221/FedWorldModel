@@ -1,9 +1,24 @@
 # fedwm/utils.py
+import os
+import sys
 from typing import Any, Dict
 import torch
 import random
 import numpy as np
 
+def ensure_wm_core_on_path() -> str:
+    """
+    Repo layout:
+      FedWorldModel/
+        fedwm/
+        wm_core/   <-- contains nnet/
+    """
+    here = os.path.dirname(os.path.abspath(__file__))     # .../FedWorldModel/fedwm
+    repo_root = os.path.dirname(here)                     # .../FedWorldModel
+    wm_core = os.path.join(repo_root, "wm_core")          # .../FedWorldModel/wm_core
+    if wm_core not in sys.path:
+        sys.path.insert(0, wm_core)
+    return wm_core
 
 # ============================
 # State-dict helpers

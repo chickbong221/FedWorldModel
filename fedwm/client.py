@@ -121,10 +121,12 @@ class ClientWMAvg(ClientWMBase):
     """
 
     def train(self) -> Dict[str, float]:
+        # print("training client", self.id)
         local_steps = int(getattr(self.cfg.fl, "local_steps", 0))
         if local_steps <= 0:
             return {}
 
+        print("training client", self.id)
         out = self.tw.local_wm_train(local_steps, wm_config=self.cfg.wm)
 
         # normalize metrics to float dict
