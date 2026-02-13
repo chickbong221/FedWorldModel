@@ -70,6 +70,7 @@ class ServerWMAvg:
 
     @torch.no_grad()
     def aggregate_world_model(self) -> Dict[str, float]:
+        # print("[Server] Aggregating world model from client updates...")
         active = self._apply_client_drop()
         if len(active) == 0:
             raise RuntimeError("No client updates received for aggregation.")

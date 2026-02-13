@@ -33,8 +33,8 @@ import glob
 
 class TWISTER(models.Model):
 
-    def __init__(self, env_name, override_config={}, name="Transformer-based World model wIth contraSTivE Representations (TWISTER)"):
-        super(TWISTER, self).__init__(name=name)
+    def __init__(self, env_name, override_config={}, role = None, name="Transformer-based World model wIth contraSTivE Representations (TWISTER)"):
+        super(TWISTER, self).__init__(name=name, role=role)
 
         # Model Sizes
         model_sizes = {
@@ -782,6 +782,12 @@ class TWISTER(models.Model):
             batch_losses.update({"world_model_" + k: v for k, v in world_model_batch_losses.items()})
             batch_metrics.update({"world_model_" + k: v for k, v in world_model_batch_metrics.items()})
             self.infos.update({"world_model_" + k: v for k, v in self.world_model.infos.items()})
+        else:
+            if "cuda" in str(self.device):
+                with torch.cuda.amp.autocast(enabled=precision!=torch.float32, dtype=precision):
+                    _, _, _, _ = self.world_model.forward_model(inputs, targets, compute_metrics=eval_training)
+            else:
+                _, _, _, _ = self.world_model.forward_model(inputs, targets, compute_metrics=eval_training)
 
         # ----------------------------
         # Actor/Critic Train Step

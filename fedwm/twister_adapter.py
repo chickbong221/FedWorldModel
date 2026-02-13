@@ -39,7 +39,6 @@ class TwisterAdapter:
         else:
             self.callback_path = "callbacks/{}".format(env_name)
 
-
     # ----------------------------
     # internal
     # ----------------------------
@@ -162,7 +161,7 @@ class TwisterAdapter:
 
         # build on CPU (avoid VRAM blow-up)
         cpu = torch.device("cpu")
-        model = nnet.models.TWISTER(env_name=env_name, override_config=merged_override)
+        model = nnet.models.TWISTER(env_name=env_name, override_config=merged_override, role=role)
         print(f"TWISTER model built on CPU with env {env_name} and role {role}.")
         model.to(cpu)
         model.compile()  # creates optimizers etc. (stays on CPU)
@@ -296,6 +295,9 @@ class TwisterAdapter:
         if grad_init_scale is None:
             grad_init_scale = getattr(wm_config, "grad_init_scale", 65536.0)
 
+        a = 1 if "server" in self.role.lower() else None
+        print(a)
+
         self.model.fit(
             dataset_train=self.dataset_train,
             epochs=1,
@@ -305,11 +307,11 @@ class TwisterAdapter:
             precision=precision,
             accumulated_steps=accumulated_steps,
             eval_period_step=None,
-            eval_period_epoch=None,
+            eval_period_epoch=1 if "server" in self.role.lower() else None,  # server does eval every epoch; clients do not eval
             saving_period_epoch=10**9,
             log_figure_period_step=None,
-            log_figure_period_epoch=10**9,
-            step_log_period=10**9,
+            log_figure_period_epoch=None,
+            step_log_period=100,
             grad_init_scale=grad_init_scale,
             detect_anomaly=False,
             recompute_metrics=False,

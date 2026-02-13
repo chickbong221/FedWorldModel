@@ -31,13 +31,14 @@ from nnet.optimizers import optim_dict
 
 class Model(modules.Module):
 
-    def __init__(self, name="model"):
+    def __init__(self, name="model", role = None):
         super(Model, self).__init__()
 
         # Model Attributes
         self.compiled = False
         self.built = False
         self.name = name
+        self.role = role
         self.grad_scaler_state_dict = None
 
     def compile(self, losses, loss_weights=None, optimizer="Adam", metrics=None, decoders=None):
@@ -595,30 +596,27 @@ class Model(modules.Module):
 
     def log_step(self, losses, metrics, infos, writer, step=None, epoch=None, tag="train"):
         print("Logging step:", tag, "step:", step, "epoch:", epoch)
-        log_dict = {}
 
-        # Axes
+        log_dict = {}
+        prefix = f"{self.role}/" if self.role is not None else ""
+
         if step is not None:
             log_dict["train_step"] = step
         if epoch is not None:
             log_dict["epoch"] = epoch
 
-        # Losses
         for key, value in losses.items():
-            log_dict[f"{tag}/{key}"] = float(value)
+            log_dict[f"{prefix}{tag}/{key}"] = float(value)
 
-        # Metrics
         for key, value in metrics.items():
-            log_dict[f"{tag}/{key}"] = float(value)
+            log_dict[f"{prefix}{tag}/{key}"] = float(value)
 
-        # Infos
         for key, value in infos.items():
             if isinstance(value, (float, int)):
-                log_dict[f"{tag}/{key}"] = float(value)
+                log_dict[f"{prefix}{tag}/{key}"] = float(value)
             elif isinstance(value, torch.Tensor) and value.numel() == 1:
-                log_dict[f"{tag}/{key}"] = float(value.item())
+                log_dict[f"{prefix}{tag}/{key}"] = float(value.item())
 
-        # Let W&B handle internal step ordering
         wandb.log(log_dict)
 
 
@@ -658,22 +656,6 @@ class Model(modules.Module):
         verbose_progress_bar=1,
         keep_last_k=None
     ):
-        
-        # Init wandb
-        if callback_path is not None and wandb_logging:
-            try:
-                wandb.init(project='nnet', name=callback_path, resume=False, reinit=True)
-                wandb.define_metric("train/*", step_metric="train_step")
-                wandb.define_metric("eval/*", step_metric="epoch")
-
-                wandb.define_metric("train_step")
-                wandb.define_metric("epoch")
-            except Exception as e:
-                print(str(e))
-
-        # Is Compiled
-        if not self.compiled:
-            raise Exception("You must compile your model before training/testing.")
 
         # Mixed Precision Gradient Scaler
         self.grad_scaler = torch.cuda.amp.GradScaler(init_scale=grad_init_scale, enabled=(grad_init_scale != None) and (precision==torch.float16))# and ("cuda" in str(self.device)))

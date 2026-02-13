@@ -6,18 +6,17 @@ import os
 import random
 from dataclasses import dataclass
 import sys
+import time
 from types import SimpleNamespace
 from typing import Any, Dict, Optional
 from fedwm.utils import ensure_wm_core_on_path
+import wandb
 
 import numpy as np
 import torch
 
 import warnings
-warnings.filterwarnings(
-    "ignore",
-    message=".*X11: The DISPLAY environment variable is missing.*",
-)
+warnings.filterwarnings("ignore")
 
 # -------------------------
 # utils
@@ -74,6 +73,7 @@ def build_cfg(fl_json_path: str, wm_config_py: str, override_json: Optional[str]
 # main
 # -------------------------
 def main():
+
     ensure_wm_core_on_path() 
     parser = argparse.ArgumentParser()
 
@@ -93,9 +93,29 @@ def main():
     args = parser.parse_args()
     set_seed(args.seed)
 
-    # Optional: keep TWISTER env var mechanism (TWISTER reads env_name/override_config in some setups)
-    if args.env_name is not None:
-        os.environ["env_name"] = args.env_name
+    if args.wandb:
+        wandb.login(key="b1d6eed8871c7668a889ae74a621b5dbd2f3b070")
+
+    # Callback
+    if os.environ.get("run_name", False):
+        callback_path = (
+        f"callbacks/{os.environ['run_name']}/"
+        f"{os.environ['env_name']}_{time.time()}"
+    )
+    else:
+        callback_path = "callbacks/{}".format(os.environ['env_name'])
+
+    # Init wandb
+    if callback_path is not None and args.wandb:
+        try:
+            wandb.init(project='FedWorldModel', name=callback_path, resume=False, reinit=True)
+            wandb.define_metric("train/*", step_metric="train_step")
+            wandb.define_metric("eval/*", step_metric="epoch")
+
+            wandb.define_metric("train_step")
+            wandb.define_metric("epoch")
+        except Exception as e:
+            print(str(e))
 
     device = torch.device("cpu" if args.cpu or (not torch.cuda.is_available()) else "cuda")
 
