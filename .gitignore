@@ -5,5 +5,5 @@ __pycache__
 callbacks/*
 .ipynb_checkpoints
 .cache
-wandb/*
+wandb/
 env_twister/*
