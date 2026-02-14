@@ -307,7 +307,7 @@ class TwisterAdapter:
             precision=precision,
             accumulated_steps=accumulated_steps,
             eval_period_step=None,
-            eval_period_epoch=1 if "server" in self.role.lower() else None,  # server does eval every epoch; clients do not eval
+            eval_period_epoch=100 if "server" in self.role.lower() else None,  # server does eval every epoch; clients do not eval
             saving_period_epoch=10**9,
             log_figure_period_step=None,
             log_figure_period_epoch=None,
