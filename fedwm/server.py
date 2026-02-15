@@ -151,7 +151,7 @@ class ServerWMAvg:
         print(f"[Server] round={r} {keys}".strip())
 
         # ---- evaluation ----
-        interval = max(1, global_rounds // 1000)
+        interval = max(1, global_rounds // 10)
         if (r + 1) % interval == 0:
             if getattr(self.tw, "dataset_eval", None) is not None:
                 try:
