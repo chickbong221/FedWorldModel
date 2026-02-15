@@ -150,6 +150,8 @@ class ServerWMAvg:
         keys = ", ".join([f"{k}={v:.3f}" for k, v in msg.items() if k != "round"])
         print(f"[Server] round={r} {keys}".strip())
 
+        self.tw._evaluate(self.tw.dataset_eval, )
+
 
 def _to_float_dict(d: Any) -> Dict[str, float]:
     out: Dict[str, float] = {}
