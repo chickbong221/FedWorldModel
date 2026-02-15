@@ -179,7 +179,7 @@ def main():
         finally:
             server.tw.sync_to_cpu(free_cuda=True)
 
-        server.log_round(r)
+        server.log_round(r, global_rounds=global_rounds)
 
     print("\nAll done!")
 

@@ -137,7 +137,7 @@ class ServerWMAvg:
     # ----------------------------
     # Logging
     # ----------------------------
-    def log_round(self, r: int, extra: Optional[Dict[str, float]] = None) -> None:
+    def log_round(self, r: int, extra: Optional[Dict[str, float]] = None, global_rounds=1000) -> None:
         """
         Minimal logger. You can later hook wandb/tensorboard.
         """
@@ -150,7 +150,23 @@ class ServerWMAvg:
         keys = ", ".join([f"{k}={v:.3f}" for k, v in msg.items() if k != "round"])
         print(f"[Server] round={r} {keys}".strip())
 
-        self.tw._evaluate(self.tw.dataset_eval, )
+        # ---- evaluation ----
+        interval = max(1, global_rounds // 1000)
+        if (r + 1) % interval == 0:
+            if getattr(self.tw, "dataset_eval", None) is not None:
+                try:
+                    self.tw.model._evaluate(
+                        dataset=self.tw.dataset_eval,
+                        writer=None,
+                        eval_steps=None,
+                        verbose=0,
+                        recompute_metrics=False,
+                        tag="Server-Eval",
+                        verbose_progress_bar=1,
+                        epoch=r,
+                    )
+                except Exception as e:
+                    print(f"[Server] Evaluation failed at round {r}: {e}")
 
 
 def _to_float_dict(d: Any) -> Dict[str, float]:
