@@ -16,7 +16,11 @@
 import torch
 from torch import nn
 import torchvision
-import wandb
+
+try:
+    import wandb
+except ModuleNotFoundError:
+    wandb = None
 
 # NeuralNets
 from nnet import models
@@ -1414,7 +1418,8 @@ class TWISTER(models.Model):
             )
 
             # Log to wandb
-            wandb.log({f"{tag}/chunk_{chunk_idx}": wandb.Image(fig)})
+            if wandb is not None and wandb.run is not None:
+                wandb.log({f"{tag}/chunk_{chunk_idx}": wandb.Image(fig)})
 
         # Default Mode: restore training/eval mode
         self.train(mode=mode)

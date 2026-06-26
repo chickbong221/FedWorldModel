@@ -15,14 +15,17 @@
 # PyTorch
 import torch
 import torch.nn as nn
-from torch.utils.tensorboard import SummaryWriter
 
 # Other
 from tqdm import tqdm
 import os
 import time
 import glob
-import wandb
+
+try:
+    import wandb
+except ModuleNotFoundError:
+    wandb = None
 
 # Neural Nets
 from nnet import modules
@@ -617,7 +620,8 @@ class Model(modules.Module):
             elif isinstance(value, torch.Tensor) and value.numel() == 1:
                 log_dict[f"{prefix}{tag}/{key}"] = float(value.item())
 
-        wandb.log(log_dict)
+        if wandb is not None and wandb.run is not None:
+            wandb.log(log_dict)
 
 
     def print_step(self, losses, metrics, tag):

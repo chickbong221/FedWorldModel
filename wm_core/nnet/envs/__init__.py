@@ -14,5 +14,8 @@
 
 # Sub Packages
 from . import wrappers
-from . import dm_control
+try:
+    from . import dm_control
+except ModuleNotFoundError:
+    dm_control = None
 from . import atari
